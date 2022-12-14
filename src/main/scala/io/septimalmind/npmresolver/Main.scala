@@ -5,6 +5,7 @@ import io.circe.Parser
 import io.circe.jawn.JawnParser
 import izumi.functional.bio._
 import izumi.functional.bio.catz._
+import org.apache.commons.compress.archivers.tar.TarArchiveInputStream
 import org.http4s.EntityDecoder
 import org.http4s.circe._
 import org.http4s.client.Client
@@ -13,6 +14,7 @@ import zio._
 import zio.blocking.Blocking
 import zio.clock.Clock
 
+import java.io.File
 import java.nio.file.{Files, Path}
 
 case class Dist(npm: NPMDist, artifact: NPMArtifact)
@@ -20,31 +22,55 @@ case class ToDownload(
     tarballs: List[Dist]
 )
 
+object UnTgz {
+
+  import java.io.FileInputStream
+  import java.io.FileOutputStream
+  import java.io.IOException
+  import java.util.zip.GZIPInputStream
+
+  @throws[IOException]
+  def extract(tgz: Path, base: Path): Unit = {
+    val tin = new TarArchiveInputStream(
+      new GZIPInputStream(new FileInputStream(tgz.toFile))
+    )
+
+    base.toFile.mkdirs()
+
+    try {
+      var tarEnt = tin.getNextEntry
+      while ({
+        tarEnt != null
+      }) {
+        val entryName = tarEnt.getName
+        val fullPath = base.resolve(entryName)
+
+        if (tarEnt.isDirectory) {
+          fullPath.toFile.mkdirs()
+        } else {
+          fullPath.getParent.toFile.mkdirs()
+
+          val fos = new FileOutputStream(fullPath.toFile)
+          try {
+            tin.transferTo(fos)
+          } finally {
+            if (fos != null) fos.close()
+          }
+        }
+
+        tarEnt = tin.getNextEntry
+      }
+    } finally {
+      if (tin != null) tin.close()
+    }
+  }
+}
+
 class NPMResolver[F[+_, +_]: Async2: Fork2: Temporal2: BlockingIO2](
     client: Client[F[Throwable, *]]
 ) {
   type BIOTask[A] = F[Throwable, A]
-
-  def checkHash(path: file.Path, shasum: String): F[Throwable, Unit] = {
-    import izumi.fundamentals.platform.bytes.IzBytes._
-
-    for {
-      out <- fs2.io.file
-        .Files[BIOTask]
-        .readAll(path)
-        .through(fs2.hash.sha1)
-        .compile
-        .toVector
-      hex = out.toArray.toHex
-      _ <- F.ifThenElse(hex == shasum)(
-        F.unit,
-        F.fail(
-          new RuntimeException(s"Hash mismatch: got ${hex}, expected ${shasum}")
-        )
-      )
-    } yield {}
-
-  }
+  private val compr = new CompressionIO2Gzip[F]()
 
   def download(
       toDownload: ToDownload,
@@ -60,6 +86,12 @@ class NPMResolver[F[+_, +_]: Async2: Fork2: Temporal2: BlockingIO2](
           )
         )
         _ <- checkHash(path, tarball.npm.shasum)
+        _ <- F.sync(
+          UnTgz.extract(
+            path.toNioPath,
+            target.resolve("npm").resolve(tarball.artifact.name)
+          )
+        )
       } yield {
         path
       }
@@ -91,7 +123,28 @@ class NPMResolver[F[+_, +_]: Async2: Fork2: Temporal2: BlockingIO2](
     }
   }
 
-  def versionToDownload(spec: String): F[Throwable, String] = {
+  private def checkHash(path: file.Path, shasum: String): F[Throwable, Unit] = {
+    import izumi.fundamentals.platform.bytes.IzBytes._
+
+    for {
+      out <- fs2.io.file
+        .Files[BIOTask]
+        .readAll(path)
+        .through(fs2.hash.sha1)
+        .compile
+        .toVector
+      hex = out.toArray.toHex
+      _ <- F.ifThenElse(hex == shasum)(
+        F.unit,
+        F.fail(
+          new RuntimeException(s"Hash mismatch: got ${hex}, expected ${shasum}")
+        )
+      )
+    } yield {}
+
+  }
+
+  private def versionToDownload(spec: String): F[Throwable, String] = {
     F.pure(if (spec.charAt(0).isDigit) {
       spec
     } else {
@@ -103,8 +156,6 @@ class NPMResolver[F[+_, +_]: Async2: Fork2: Temporal2: BlockingIO2](
 object Main {
   def main(args: Array[String]): Unit = {
 
-    val a = F.sync(println("Hello world!.."))
-
     def resolve[F[+_, +_]: Async2: Fork2: Temporal2: BlockingIO2](
         client: Client[F[Throwable, *]]
     ) = {
@@ -113,13 +164,14 @@ object Main {
         todo <- res.resolve(
           NPMArtifact("testy-mctestface", "1.0.5")
         )
+        out <- F.sync(Files.createTempDirectory(s"npm-${System.nanoTime()}"))
         tars <- res.download(
           todo,
-          Files.createTempDirectory(s"npm-${System.nanoTime()}")
+          out
         )
       } yield {
+        println(s"See ${out}")
         (todo, tars)
-
       }
 
     }
@@ -134,7 +186,6 @@ object Main {
     }
 
     val p = for {
-      _ <- a
       clock <- ZIO.environment[Clock]
       blocking <- ZIO.environment[Blocking]
       resolved <- {
