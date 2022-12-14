@@ -16,6 +16,7 @@ import zio.clock.Clock
 
 import java.io.File
 import java.nio.file.{Files, Path}
+import java.util
 
 case class Dist(npm: NPMDist, artifact: NPMArtifact)
 case class ToDownload(
@@ -89,7 +90,7 @@ class NPMResolver[F[+_, +_]: Async2: Fork2: Temporal2: BlockingIO2](
         _ <- F.sync(
           UnTgz.extract(
             path.toNioPath,
-            target.resolve("npm").resolve(tarball.artifact.name)
+            target.resolve("node_modules").resolve(tarball.artifact.name)
           )
         )
       } yield {
@@ -154,6 +155,23 @@ class NPMResolver[F[+_, +_]: Async2: Fork2: Temporal2: BlockingIO2](
 }
 
 object Main {
+  def test(path: String) = {
+    import org.graalvm.polyglot.Context
+    val options = new util.HashMap[String, String]()
+    options.put("js.commonjs-require", "true")
+    options.put("js.commonjs-require-cwd", path)
+
+    val cx = Context
+      .newBuilder("js")
+      .allowExperimentalOptions(true)
+      .allowIO(true)
+      .options(options)
+      .build
+
+    val module = cx.eval("js", "require('es-leftpad');")
+    println(module)
+  }
+
   def main(args: Array[String]): Unit = {
 
     def resolve[F[+_, +_]: Async2: Fork2: Temporal2: BlockingIO2](
@@ -170,8 +188,7 @@ object Main {
           out
         )
       } yield {
-        println(s"See ${out}")
-        (todo, tars)
+        (out, todo, tars)
       }
 
     }
@@ -195,6 +212,7 @@ object Main {
       }
     } yield {
       println(resolved)
+      test(resolved._1.resolve("node_modules").toString)
     }
     zio.Runtime.default.unsafeRun(p)
 
