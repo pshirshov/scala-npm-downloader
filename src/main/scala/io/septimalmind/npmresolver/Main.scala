@@ -44,8 +44,10 @@ object UnTgz {
         tarEnt != null
       }) {
         val entryName = tarEnt.getName
-        val fullPath = base.resolve(entryName)
+        assert(entryName.startsWith("package/"))
+        val fullPath = base.resolve(entryName.drop("package/".length))
 
+        println(fullPath)
         if (tarEnt.isDirectory) {
           fullPath.toFile.mkdirs()
         } else {
@@ -158,6 +160,7 @@ object Main {
   def test(path: String) = {
     import org.graalvm.polyglot.Context
     val options = new util.HashMap[String, String]()
+    println(path)
     options.put("js.commonjs-require", "true")
     options.put("js.commonjs-require-cwd", path)
 
