@@ -26,8 +26,7 @@ object NPMResolver {
 
 class NPMResolver[F[+_, +_]: Async2: Fork2: Temporal2: BlockingIO2](
     client: Client[F[Throwable, *]],
-    cache: BlobCache[F],
-    cac: ConcurrentActionCache[F, NPMArtifact, DownloadedDescriptor]
+    cache: BlobCache[F]
 ) {
   type BIOTask[A] = F[Throwable, A]
   import NPMResolver._
@@ -67,35 +66,35 @@ class NPMResolver[F[+_, +_]: Async2: Fork2: Temporal2: BlockingIO2](
   def resolve(
       artifact: NPMArtifact
   ): F[Throwable, ToDownload] = {
+    resolve(
+      artifact,
+      new ConcurrentActionCache[F, NPMArtifact, DownloadedDescriptor]
+    )
+  }
+
+  private def resolve(
+      artifact: NPMArtifact,
+      cac: ConcurrentActionCache[F, NPMArtifact, DownloadedDescriptor]
+  ): F[Throwable, ToDownload] = {
     for {
       descriptor <- cac.retrieve(artifact, a => doDownload(a))
-      out <- descriptor match {
-        case ConcurrentActionCache.HaveV(v) =>
+      ver <- F.fromOption(
+        new RuntimeException(s"Version not found: ${artifact.version}")
+      )(descriptor.descriptor.versions.get(artifact.version))
+      _ <- F.sync(println(s"Found descriptor for ${artifact}"))
+      deps <- F.parTraverse(ver.dependencies.getOrElse(Map.empty)) {
+        case (artifact, verspec) =>
           for {
-            ver <- F.fromOption(
-              new RuntimeException(s"Version not found: ${artifact.version}")
-            )(v.descriptor.versions.get(artifact.version))
-            _ <- F.sync(println(s"Found descriptor for ${artifact}"))
-            deps <- F.parTraverse(ver.dependencies.getOrElse(Map.empty)) {
-              case (artifact, verspec) =>
-                for {
-                  ver <- versionToDownload(verspec)
-                  out <- resolve(NPMArtifact(artifact, ver))
-                } yield {
-                  out
-                }
-            }
+            ver <- versionToDownload(verspec)
+            out <- resolve(NPMArtifact(artifact, ver))
           } yield {
-            ToDownload(
-              List(Dist(ver.dist, artifact)) ++ deps.flatMap(_.tarballs)
-            )
+            out
           }
-        case ConcurrentActionCache.PendingTask() =>
-          F.sync(println(s"already in the queue: $artifact")) *>
-            F.pure(ToDownload(List.empty)) // it's already in the queue
       }
     } yield {
-      out
+      ToDownload(
+        List(Dist(ver.dist, artifact)) ++ deps.flatMap(_.tarballs)
+      )
     }
   }
 

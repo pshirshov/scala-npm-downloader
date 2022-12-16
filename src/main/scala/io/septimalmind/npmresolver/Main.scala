@@ -34,18 +34,17 @@ object Main {
 
   def main(args: Array[String]): Unit = {
 
-    def resolve[F[+_, +_]: Async2: Fork2: Temporal2: BlockingIO2: Entropy2](
+    def resolve[
+        F[+_, +_]: Async2: Fork2: Temporal2: BlockingIO2: Entropy2: Primitives2
+    ](
         client: Client[F[Throwable, *]]
     ) = {
       for {
         cache <- F.pure(
           new BlobCache.BlobCacheLocalFSImpl[F](Paths.get("/tmp/npm-blobs"))
         )
-        cac <- F.pure(
-          new ConcurrentActionCache[F, NPMArtifact, DownloadedDescriptor]
-        )
         res <- F.pure(
-          new NPMResolver[F](client, cache, cac)
+          new NPMResolver[F](client, cache)
         )
         todo <- res.resolve(
           NPMArtifact("testy-mctestface", "1.0.5")
