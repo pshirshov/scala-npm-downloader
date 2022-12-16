@@ -1,7 +1,8 @@
 package io.septimalmind.npmresolver
 
 import fs2.io.file
-import io.septimalmind.npmresolver.NPMResolver.DownloadedDescriptor
+import io.septimalmind.npmresolver.caches.{BlobCache, ConcurrentActionCache}
+import io.septimalmind.npmresolver.compression.UnTgz
 import izumi.functional.bio._
 import izumi.functional.bio.catz._
 import org.http4s.circe._

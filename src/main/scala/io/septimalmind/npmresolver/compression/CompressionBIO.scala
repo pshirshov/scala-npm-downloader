@@ -1,10 +1,10 @@
-package io.septimalmind.npmresolver
+package io.septimalmind.npmresolver.compression
 
-import java.io.{ByteArrayInputStream, ByteArrayOutputStream, File, FileInputStream, FileOutputStream}
-import java.util.zip.{GZIPInputStream, GZIPOutputStream}
 import izumi.functional.bio.{F, IO2}
 
+import java.io._
 import java.nio.file.Path
+import java.util.zip.{GZIPInputStream, GZIPOutputStream}
 
 trait CompressionIO2[F[+_, +_]] {
   def deflate(bytes: Array[Byte]): F[Throwable, Array[Byte]]

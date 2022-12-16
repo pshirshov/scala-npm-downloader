@@ -1,4 +1,4 @@
-package io.septimalmind.npmresolver
+package io.septimalmind.npmresolver.caches
 
 import izumi.functional.bio.{Entropy2, F, IO2, Primitives2, Promise2}
 

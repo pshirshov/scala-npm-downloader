@@ -1,10 +1,11 @@
-package io.septimalmind.npmresolver
+package io.septimalmind.npmresolver.caches
 
+import io.septimalmind.npmresolver.Hashsum
 import izumi.functional.bio.{F, _}
 
 import java.nio.channels.FileChannel
-import java.nio.file.{OpenOption, Path, StandardOpenOption}
-import scala.concurrent.duration.{DurationInt, FiniteDuration}
+import java.nio.file.{Path, StandardOpenOption}
+import scala.concurrent.duration.DurationInt
 
 trait BlobCache[F[+_, +_]] {
   def fetch(

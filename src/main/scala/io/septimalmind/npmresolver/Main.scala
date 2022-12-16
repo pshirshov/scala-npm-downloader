@@ -1,6 +1,6 @@
 package io.septimalmind.npmresolver
 
-import io.septimalmind.npmresolver.NPMResolver.DownloadedDescriptor
+import io.septimalmind.npmresolver.caches.BlobCache
 import izumi.functional.bio._
 import izumi.functional.bio.catz._
 import org.http4s.client.Client
@@ -11,7 +11,6 @@ import zio.clock.Clock
 
 import java.nio.file.{Files, Paths}
 import java.util
-import java.util.concurrent.ConcurrentHashMap
 
 object Main {
   def test(path: String) = {

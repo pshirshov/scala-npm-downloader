@@ -1,4 +1,4 @@
-package io.septimalmind.npmresolver
+package io.septimalmind.npmresolver.compression
 
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream
 
