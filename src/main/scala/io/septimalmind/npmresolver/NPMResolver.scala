@@ -3,9 +3,10 @@ package io.septimalmind.npmresolver
 import fs2.io.file
 import izumi.functional.bio._
 import izumi.functional.bio.catz._
-import org.http4s.EntityDecoder
 import org.http4s.circe._
 import org.http4s.client.Client
+import org.http4s.client.dsl.Http4sClientDsl
+import org.http4s.{EntityDecoder, EntityTag, Uri}
 
 import java.nio.file.Path
 import java.util.UUID
@@ -15,6 +16,11 @@ object NPMResolver {
   case class Dist(npm: NPMDist, artifact: NPMArtifact)
   case class ToDownload(
       tarballs: List[Dist]
+  )
+
+  case class DownloadedDescriptor(
+      etag: Option[String],
+      descriptor: NPMDescriptor
   )
 
 }
@@ -65,11 +71,12 @@ class NPMResolver[F[+_, +_]: Async2: Fork2: Temporal2: BlockingIO2](
     resolve(artifact, new ConcurrentHashMap())
   }
 
-  def resolve(
+  private def resolve(
       artifact: NPMArtifact,
-      state: ConcurrentHashMap[NPMArtifact, Either[UUID, NPMDescriptor]]
+      state: ConcurrentHashMap[NPMArtifact, Either[UUID, DownloadedDescriptor]]
   ): F[Throwable, ToDownload] = {
     for {
+      // this is just a local per-invokation cache to avoid visiting the same node multiple times
       token <- entropy2.nextTimeUUID()
       maybeDescriptor <- F.sync(
         state.computeIfAbsent(artifact, _ => Left(token))
@@ -80,14 +87,9 @@ class NPMResolver[F[+_, +_]: Async2: Fork2: Temporal2: BlockingIO2](
 
         case Left(t) if t == token =>
           for {
-            url <- F.pure(s"https://registry.npmjs.org/${artifact.name}")
-            _ <- F.sync(println(s"Download required: $artifact, $url"))
-            descriptor <- client.expect[NPMDescriptor](
-              url
-            )(
-              jsonOf[BIOTask, NPMDescriptor]
-            )
-            // the slippage still may happen here, we need a CHM over F
+            descriptor <- doDownload(artifact)
+            // The initiator token should make the slippages impossible
+            // Though a CHM over F would be the right solution
             _ <- F.sync(state.put(artifact, Right(descriptor)))
           } yield {
             Some(descriptor)
@@ -101,7 +103,7 @@ class NPMResolver[F[+_, +_]: Async2: Fork2: Temporal2: BlockingIO2](
           for {
             ver <- F.fromOption(
               new RuntimeException(s"Version not found: ${artifact.version}")
-            )(value.versions.get(artifact.version))
+            )(value.descriptor.versions.get(artifact.version))
             _ <- F.sync(println(s"Found descriptor for ${artifact}"))
             deps <- F.parTraverse(ver.dependencies.getOrElse(Map.empty)) {
               case (artifact, verspec) =>
@@ -123,6 +125,47 @@ class NPMResolver[F[+_, +_]: Async2: Fork2: Temporal2: BlockingIO2](
 
     } yield {
       out
+    }
+  }
+
+  object clientF extends Http4sClientDsl[BIOTask]
+
+  private def doDownload(
+      artifact: NPMArtifact
+  ): F[Throwable, DownloadedDescriptor] = {
+    import clientF._
+    import org.http4s.dsl.io._
+    import org.http4s.headers._
+    implicit val d: EntityDecoder[BIOTask, NPMDescriptor] =
+      jsonOf[BIOTask, NPMDescriptor]
+
+    for {
+      url <- F.sync(
+        Uri.unsafeFromString(
+          s"https://registry.npmjs.org/${artifact.name}"
+        )
+      )
+      maybeEtag <- F.pure(Option("nuthing"))
+      req <- maybeEtag match {
+        case Some(value) =>
+          F.pure(GET(url, `If-None-Match`(EntityTag.apply(value))))
+        case None =>
+          F.pure(GET(url))
+      }
+      _ <- F.sync(println(s"Download required: $artifact, $req"))
+      descriptor <- client.run(req).use { req =>
+        for {
+          etag <- F.pure(req.headers.get[ETag].map(_.tag.tag))
+          body <- req.as[NPMDescriptor]
+          // TODO: persist etags
+          // TODO: fetch from local storage if we have an entry and it's not changed
+        } yield {
+          println(s"$url => $etag")
+          DownloadedDescriptor(etag, body)
+        }
+      }
+    } yield {
+      descriptor
     }
   }
 

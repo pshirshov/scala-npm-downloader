@@ -37,7 +37,6 @@ object Main {
         client: Client[F[Throwable, *]]
     ) = {
       for {
-//        compr <- F.pure(new CompressionIO2Gzip[F]())
         cache <- F.pure(
           new BlobCache.BlobCacheLocalFSImpl[F](Paths.get("/tmp/npm-blobs"))
         )
@@ -77,7 +76,7 @@ object Main {
       }
     } yield {
       println(resolved)
-      test(resolved._1.resolve("node_modules").toString)
+      //test(resolved._1.resolve("node_modules").toString)
     }
     zio.Runtime.default.unsafeRun(p)
 
