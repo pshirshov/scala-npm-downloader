@@ -89,7 +89,7 @@ class NPMResolver[
         case (artifact, verspec) =>
           for {
             ver <- versionToDownload(verspec)
-            out <- resolve(NPMArtifact(artifact, ver))
+            out <- resolve(NPMArtifact(artifact, ver), cac)
           } yield {
             out
           }
