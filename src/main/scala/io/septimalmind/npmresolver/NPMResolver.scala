@@ -25,7 +25,9 @@ object NPMResolver {
 
 }
 
-class NPMResolver[F[+_, +_]: Async2: Fork2: Temporal2: BlockingIO2](
+class NPMResolver[
+    F[+_, +_]: Async2: Fork2: Temporal2: BlockingIO2: Primitives2
+](
     client: Client[F[Throwable, *]],
     cache: BlobCache[F]
 ) {
