@@ -30,3 +30,15 @@ object NPMDescriptor {
   implicit val c: Codec[NPMDescriptor] =
     io.circe.generic.semiauto.deriveCodec[NPMDescriptor]
 }
+
+sealed trait Hashsum {
+  def name: String
+  def value: String
+
+  override def toString: String = s"$name:$value".toLowerCase
+}
+object Hashsum {
+  case class Sha1(value: String) extends Hashsum {
+    override def name: String = "sha1"
+  }
+}
