@@ -1,5 +1,6 @@
 package io.septimalmind.npmresolver
 
+import io.septimalmind.npmresolver.NPMResolver.DownloadedDescriptor
 import izumi.functional.bio._
 import izumi.functional.bio.catz._
 import org.http4s.client.Client
@@ -40,8 +41,11 @@ object Main {
         cache <- F.pure(
           new BlobCache.BlobCacheLocalFSImpl[F](Paths.get("/tmp/npm-blobs"))
         )
+        cac <- F.pure(
+          new ConcurrentActionCache[F, NPMArtifact, DownloadedDescriptor]
+        )
         res <- F.pure(
-          new NPMResolver[F](client, cache, implicitly[Entropy2[F]])
+          new NPMResolver[F](client, cache, cac)
         )
         todo <- res.resolve(
           NPMArtifact("testy-mctestface", "1.0.5")

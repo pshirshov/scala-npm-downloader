@@ -1,6 +1,7 @@
 package io.septimalmind.npmresolver
 
 import fs2.io.file
+import io.septimalmind.npmresolver.NPMResolver.DownloadedDescriptor
 import izumi.functional.bio._
 import izumi.functional.bio.catz._
 import org.http4s.circe._
@@ -9,8 +10,6 @@ import org.http4s.client.dsl.Http4sClientDsl
 import org.http4s.{EntityDecoder, EntityTag, Uri}
 
 import java.nio.file.Path
-import java.util.UUID
-import java.util.concurrent.ConcurrentHashMap
 
 object NPMResolver {
   case class Dist(npm: NPMDist, artifact: NPMArtifact)
@@ -28,7 +27,7 @@ object NPMResolver {
 class NPMResolver[F[+_, +_]: Async2: Fork2: Temporal2: BlockingIO2](
     client: Client[F[Throwable, *]],
     cache: BlobCache[F],
-    entropy2: Entropy2[F]
+    cac: ConcurrentActionCache[F, NPMArtifact, DownloadedDescriptor]
 ) {
   type BIOTask[A] = F[Throwable, A]
   import NPMResolver._
@@ -68,48 +67,20 @@ class NPMResolver[F[+_, +_]: Async2: Fork2: Temporal2: BlockingIO2](
   def resolve(
       artifact: NPMArtifact
   ): F[Throwable, ToDownload] = {
-    resolve(artifact, new ConcurrentHashMap())
-  }
-
-  private def resolve(
-      artifact: NPMArtifact,
-      state: ConcurrentHashMap[NPMArtifact, Either[UUID, DownloadedDescriptor]]
-  ): F[Throwable, ToDownload] = {
     for {
-      // this is just a local per-invokation cache to avoid visiting the same node multiple times
-      token <- entropy2.nextTimeUUID()
-      maybeDescriptor <- F.sync(
-        state.computeIfAbsent(artifact, _ => Left(token))
-      )
-      descriptor <- maybeDescriptor match {
-        case Right(value) =>
-          F.pure(Some(value))
-
-        case Left(t) if t == token =>
-          for {
-            descriptor <- doDownload(artifact)
-            // The initiator token should make the slippages impossible
-            // Though a CHM over F would be the right solution
-            _ <- F.sync(state.put(artifact, Right(descriptor)))
-          } yield {
-            Some(descriptor)
-          }
-        case Left(_) =>
-          F.sync(println(s"Download already queued: $artifact")) *> F.pure(None)
-      }
-
+      descriptor <- cac.retrieve(artifact, a => doDownload(a))
       out <- descriptor match {
-        case Some(value) =>
+        case ConcurrentActionCache.HaveV(v) =>
           for {
             ver <- F.fromOption(
               new RuntimeException(s"Version not found: ${artifact.version}")
-            )(value.descriptor.versions.get(artifact.version))
+            )(v.descriptor.versions.get(artifact.version))
             _ <- F.sync(println(s"Found descriptor for ${artifact}"))
             deps <- F.parTraverse(ver.dependencies.getOrElse(Map.empty)) {
               case (artifact, verspec) =>
                 for {
                   ver <- versionToDownload(verspec)
-                  out <- resolve(NPMArtifact(artifact, ver), state)
+                  out <- resolve(NPMArtifact(artifact, ver))
                 } yield {
                   out
                 }
@@ -119,10 +90,10 @@ class NPMResolver[F[+_, +_]: Async2: Fork2: Temporal2: BlockingIO2](
               List(Dist(ver.dist, artifact)) ++ deps.flatMap(_.tarballs)
             )
           }
-        case None =>
-          F.pure(ToDownload(List.empty)) // it's already in the queue
+        case ConcurrentActionCache.PendingTask() =>
+          F.sync(println(s"already in the queue: $artifact")) *>
+            F.pure(ToDownload(List.empty)) // it's already in the queue
       }
-
     } yield {
       out
     }
