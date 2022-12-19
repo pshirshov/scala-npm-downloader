@@ -2,12 +2,7 @@ package io.septimalmind.npmresolver.caches
 
 import io.circe.syntax.EncoderOps
 import io.circe.{Codec, parser}
-import io.septimalmind.npmresolver.caches.EtagCache.{
-  Changed,
-  Etag,
-  Etagged,
-  RefreshResult
-}
+import io.septimalmind.npmresolver.caches.EtagCache.{Etag, Etagged, RefreshResult}
 import izumi.functional.bio._
 import izumi.fundamentals.platform.files.IzFiles
 

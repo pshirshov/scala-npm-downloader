@@ -8,7 +8,7 @@ import io.septimalmind.npmresolver.caches.{
   ConcurrentActionCache,
   EtagCache
 }
-import io.septimalmind.npmresolver.compression.UnTgz
+import io.septimalmind.npmresolver.compression.CompressionIO2Gzip
 import izumi.functional.bio._
 import izumi.functional.bio.catz._
 import izumi.fundamentals.platform.files.IzFiles
@@ -17,7 +17,7 @@ import org.http4s.client.Client
 import org.http4s.client.dsl.Http4sClientDsl
 import org.http4s.{EntityDecoder, EntityTag, Status, Uri}
 
-import java.nio.file.Path
+import java.nio.file.{Path, Paths}
 
 object NPMResolver {
   case class Dist(npm: NPMDist, artifact: NPMArtifact)
@@ -37,7 +37,8 @@ class NPMResolver[
 ](
     client: Client[F[Throwable, *]],
     cache: BlobCache[F],
-    etagCache: EtagCache[F]
+    etagCache: EtagCache[F],
+    compr: CompressionIO2Gzip[F]
 ) {
   type BIOTask[A] = F[Throwable, A]
   import NPMResolver._
@@ -61,12 +62,18 @@ class NPMResolver[
                 .map(_.toNioPath)
           )
         _ <- checkHash(path, tarball.npm.shasum)
-        _ <- F.sync(
-          UnTgz.extract(
-            path,
-            target.resolve("node_modules").resolve(tarball.artifact.name)
-          )
-        )
+        _ <- compr.untgz(
+          path,
+          target.resolve("node_modules").resolve(tarball.artifact.name)
+        ) { case (base, sub) =>
+          val p = Paths.get(sub)
+          assert(p.startsWith("package"))
+          import scala.jdk.CollectionConverters._
+
+          val tgt = p.iterator().asScala
+          println(tgt.toList)
+          F.sync(base.resolve(sub.drop("package/".length)))
+        }
       } yield {
         path
       }
@@ -117,6 +124,7 @@ class NPMResolver[
     import clientF._
     import org.http4s.dsl.io._
     import org.http4s.headers._
+
     implicit val d: EntityDecoder[BIOTask, NPMDescriptor] =
       jsonOf[BIOTask, NPMDescriptor]
 
@@ -166,6 +174,13 @@ class NPMResolver[
             path
           }
       )
+
+//      out <- Files[BIOTask]
+//        .readAll(fs2.io.file.Path.fromNioPath(blobPath.path))
+//        .through(byteArrayParser)
+//        .through(decoder[BIOTask, NPMDescriptor])
+//        .compile
+//        .lastOrError
 
       out <- F
         .sync(IzFiles.readString(blobPath.path))

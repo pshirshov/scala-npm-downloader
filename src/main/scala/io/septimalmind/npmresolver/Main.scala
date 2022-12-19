@@ -1,6 +1,7 @@
 package io.septimalmind.npmresolver
 
 import io.septimalmind.npmresolver.caches.{BlobCache, EtagCache}
+import io.septimalmind.npmresolver.compression.CompressionIO2Gzip
 import izumi.functional.bio._
 import izumi.functional.bio.catz._
 import org.http4s.client.Client
@@ -47,12 +48,16 @@ object Main {
             Paths.get("/tmp/npm-descriptors")
           )
         )
+        compr <- F.pure(
+          new CompressionIO2Gzip[F]()
+        )
         res <- F.pure(
-          new NPMResolver[F](client, cache, ecache)
+          new NPMResolver[F](client, cache, ecache, compr)
         )
         todo <- res.resolve(
           NPMArtifact("testy-mctestface", "1.0.5")
         )
+
         out <- F.sync(Files.createTempDirectory(s"npm-${System.nanoTime()}"))
         tars <- res.download(
           todo,
