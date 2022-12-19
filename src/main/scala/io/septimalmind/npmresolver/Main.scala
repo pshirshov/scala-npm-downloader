@@ -1,6 +1,6 @@
 package io.septimalmind.npmresolver
 
-import io.septimalmind.npmresolver.caches.BlobCache
+import io.septimalmind.npmresolver.caches.{BlobCache, EtagCache}
 import izumi.functional.bio._
 import izumi.functional.bio.catz._
 import org.http4s.client.Client
@@ -42,8 +42,13 @@ object Main {
         cache <- F.pure(
           new BlobCache.BlobCacheLocalFSImpl[F](Paths.get("/tmp/npm-blobs"))
         )
+        ecache <- F.pure(
+          new EtagCache.EtagCacheLocalFSImpl[F](
+            Paths.get("/tmp/npm-descriptors")
+          )
+        )
         res <- F.pure(
-          new NPMResolver[F](client, cache)
+          new NPMResolver[F](client, cache, ecache)
         )
         todo <- res.resolve(
           NPMArtifact("testy-mctestface", "1.0.5")
